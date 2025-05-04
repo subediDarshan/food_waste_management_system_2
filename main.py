@@ -1,6 +1,545 @@
+# # app.py
+# import streamlit as st
+# import sqlite3
+# import hashlib
+# import datetime
+# import pandas as pd
+# from PIL import Image
+# import os
+# import time
+# import base64
+# from io import BytesIO
+
+# # Initialize DB and create tables
+# def init_db():
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Create tables in 3NF
+    
+#     # Users table to store authentication data
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS users (
+#         user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         username TEXT UNIQUE NOT NULL,
+#         password_hash TEXT NOT NULL,
+#         user_type TEXT NOT NULL,
+#         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+#     )
+#     ''')
+    
+#     # Donors table - normalized to store donor details
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS donors (
+#         donor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         user_id INTEGER NOT NULL,
+#         name TEXT NOT NULL,
+#         FOREIGN KEY (user_id) REFERENCES users(user_id)
+#     )
+#     ''')
+    
+#     # Donor_contacts table - normalized to store contact information
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS donor_contacts (
+#         contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         donor_id INTEGER NOT NULL,
+#         email TEXT,
+#         phone TEXT,
+#         FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
+#     )
+#     ''')
+    
+#     # Donor_addresses table - normalized to store address information
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS donor_addresses (
+#         address_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         donor_id INTEGER NOT NULL,
+#         street TEXT,
+#         city TEXT,
+#         FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
+#     )
+#     ''')
+    
+#     # NGOs table - normalized to store NGO details
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS ngos (
+#         ngo_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         user_id INTEGER NOT NULL,
+#         name TEXT NOT NULL,
+#         FOREIGN KEY (user_id) REFERENCES users(user_id)
+#     )
+#     ''')
+    
+#     # NGO_contacts table - normalized to store contact information
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS ngo_contacts (
+#         contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         ngo_id INTEGER NOT NULL,
+#         email TEXT,
+#         phone TEXT,
+#         FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+#     )
+#     ''')
+    
+#     # NGO_addresses table - normalized to store address information
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS ngo_addresses (
+#         address_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         ngo_id INTEGER NOT NULL,
+#         street TEXT,
+#         city TEXT,
+#         FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+#     )
+#     ''')
+    
+#     # Food_donations table
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS food_donations (
+#         donation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         donor_id INTEGER NOT NULL,
+#         ngo_id INTEGER,
+#         food_type TEXT NOT NULL,
+#         donation_date DATE NOT NULL,
+#         expiry_date DATE NOT NULL,
+#         quantity REAL NOT NULL,
+#         status TEXT DEFAULT 'Available',
+#         FOREIGN KEY (donor_id) REFERENCES donors(donor_id),
+#         FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+#     )
+#     ''')
+    
+#     # Requests table
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS requests (
+#         request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         ngo_id INTEGER NOT NULL,
+#         food_type TEXT NOT NULL,
+#         quantity REAL NOT NULL,
+#         request_date DATE NOT NULL,
+#         status TEXT DEFAULT 'Pending',
+#         FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+#     )
+#     ''')
+    
+#     # Request_donations mapping table (for many-to-many relationship)
+#     c.execute('''
+#     CREATE TABLE IF NOT EXISTS request_donations (
+#         id INTEGER PRIMARY KEY AUTOINCREMENT,
+#         request_id INTEGER NOT NULL,
+#         donation_id INTEGER NOT NULL,
+#         FOREIGN KEY (request_id) REFERENCES requests(request_id),
+#         FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
+#     )
+#     ''')
+    
+#     # Create stored procedure using SQLite's CREATE TRIGGER syntax
+#     # This trigger will update the status of a food donation when it's assigned to an NGO
+#     c.execute('''
+#     CREATE TRIGGER IF NOT EXISTS update_donation_status
+#     AFTER UPDATE OF ngo_id ON food_donations
+#     FOR EACH ROW
+#     WHEN NEW.ngo_id IS NOT NULL
+#     BEGIN
+#         UPDATE food_donations SET status = 'Assigned' WHERE donation_id = NEW.donation_id;
+#     END;
+#     ''')
+    
+#     # Trigger to update request status when all donations are assigned
+#     c.execute('''
+#     CREATE TRIGGER IF NOT EXISTS update_request_status
+#     AFTER INSERT ON request_donations
+#     BEGIN
+#         UPDATE requests 
+#         SET status = 'Fulfilled' 
+#         WHERE request_id = NEW.request_id 
+#         AND (SELECT COUNT(*) FROM request_donations WHERE request_id = NEW.request_id) > 0;
+#     END;
+#     ''')
+    
+#     conn.commit()
+#     conn.close()
+
+# # Authentication functions
+# def hash_password(password):
+#     return hashlib.sha256(password.encode()).hexdigest()
+
+# def register_user(username, password, user_type):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     try:
+#         # Insert into users table
+#         c.execute(
+#             "INSERT INTO users (username, password_hash, user_type) VALUES (?, ?, ?)",
+#             (username, hash_password(password), user_type)
+#         )
+#         user_id = c.lastrowid
+        
+#         conn.commit()
+#         conn.close()
+#         return user_id
+#     except sqlite3.IntegrityError:
+#         conn.close()
+#         return None
+
+# def authenticate(username, password):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute(
+#         "SELECT user_id, user_type FROM users WHERE username = ? AND password_hash = ?",
+#         (username, hash_password(password))
+#     )
+#     result = c.fetchone()
+#     conn.close()
+    
+#     if result:
+#         return {"user_id": result[0], "user_type": result[1]}
+#     return None
+
+# # Donor functions
+# def register_donor(user_id, name, email, phone, street, city):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Insert into donors table
+#     c.execute("INSERT INTO donors (user_id, name) VALUES (?, ?)", (user_id, name))
+#     donor_id = c.lastrowid
+    
+#     # Insert into donor_contacts table
+#     c.execute("INSERT INTO donor_contacts (donor_id, email, phone) VALUES (?, ?, ?)", 
+#               (donor_id, email, phone))
+    
+#     # Insert into donor_addresses table
+#     c.execute("INSERT INTO donor_addresses (donor_id, street, city) VALUES (?, ?, ?)", 
+#               (donor_id, street, city))
+    
+#     conn.commit()
+#     conn.close()
+#     return donor_id
+
+# def get_donor_id_by_user_id(user_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute("SELECT donor_id FROM donors WHERE user_id = ?", (user_id,))
+#     result = c.fetchone()
+#     conn.close()
+    
+#     if result:
+#         return result[0]
+#     return None
+
+# def get_donor_info(donor_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Using JOIN to get complete donor information
+#     c.execute('''
+#     SELECT d.name, dc.email, dc.phone, da.street, da.city
+#     FROM donors d
+#     JOIN donor_contacts dc ON d.donor_id = dc.donor_id
+#     JOIN donor_addresses da ON d.donor_id = da.donor_id
+#     WHERE d.donor_id = ?
+#     ''', (donor_id,))
+    
+#     result = c.fetchone()
+#     conn.close()
+    
+#     if result:
+#         return {
+#             "name": result[0],
+#             "email": result[1],
+#             "phone": result[2],
+#             "street": result[3],
+#             "city": result[4]
+#         }
+#     return None
+
+# def create_donation(donor_id, food_type, donation_date, expiry_date, quantity, ngo_id=None):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute('''
+#     INSERT INTO food_donations 
+#     (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
+#     VALUES (?, ?, ?, ?, ?, ?, ?)
+#     ''', (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, 
+#           'Assigned' if ngo_id else 'Available'))
+    
+#     donation_id = c.lastrowid
+#     conn.commit()
+#     conn.close()
+#     return donation_id
+
+# def get_donor_donations(donor_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute('''
+#     SELECT fd.donation_id, fd.food_type, fd.donation_date, fd.expiry_date, 
+#            fd.quantity, fd.status, COALESCE(n.name, 'None')
+#     FROM food_donations fd
+#     LEFT JOIN ngos n ON fd.ngo_id = n.ngo_id
+#     WHERE fd.donor_id = ?
+#     ORDER BY fd.donation_date DESC
+#     ''', (donor_id,))
+    
+#     columns = ['donation_id', 'food_type', 'donation_date', 'expiry_date', 
+#                'quantity', 'status', 'ngo_name']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+# # NGO functions
+# def register_ngo(user_id, name, email, phone, street, city):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Insert into ngos table
+#     c.execute("INSERT INTO ngos (user_id, name) VALUES (?, ?)", (user_id, name))
+#     ngo_id = c.lastrowid
+    
+#     # Insert into ngo_contacts table
+#     c.execute("INSERT INTO ngo_contacts (ngo_id, email, phone) VALUES (?, ?, ?)", 
+#               (ngo_id, email, phone))
+    
+#     # Insert into ngo_addresses table
+#     c.execute("INSERT INTO ngo_addresses (ngo_id, street, city) VALUES (?, ?, ?)", 
+#               (ngo_id, street, city))
+    
+#     conn.commit()
+#     conn.close()
+#     return ngo_id
+
+# def get_ngo_id_by_user_id(user_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute("SELECT ngo_id FROM ngos WHERE user_id = ?", (user_id,))
+#     result = c.fetchone()
+#     conn.close()
+    
+#     if result:
+#         return result[0]
+#     return None
+
+# def get_ngo_info(ngo_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Using JOIN to get complete NGO information
+#     c.execute('''
+#     SELECT n.name, nc.email, nc.phone, na.street, na.city
+#     FROM ngos n
+#     JOIN ngo_contacts nc ON n.ngo_id = nc.ngo_id
+#     JOIN ngo_addresses na ON n.ngo_id = na.ngo_id
+#     WHERE n.ngo_id = ?
+#     ''', (ngo_id,))
+    
+#     result = c.fetchone()
+#     conn.close()
+    
+#     if result:
+#         return {
+#             "name": result[0],
+#             "email": result[1],
+#             "phone": result[2],
+#             "street": result[3],
+#             "city": result[4]
+#         }
+#     return None
+
+# def create_request(ngo_id, food_type, quantity):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     request_date = datetime.date.today().isoformat()
+    
+#     c.execute('''
+#     INSERT INTO requests (ngo_id, food_type, quantity, request_date, status) 
+#     VALUES (?, ?, ?, ?, 'Pending')
+#     ''', (ngo_id, food_type, quantity, request_date))
+    
+#     request_id = c.lastrowid
+#     conn.commit()
+#     conn.close()
+#     return request_id
+
+# def get_ngo_requests(ngo_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute('''
+#     SELECT request_id, food_type, quantity, request_date, status
+#     FROM requests
+#     WHERE ngo_id = ?
+#     ORDER BY request_date DESC
+#     ''', (ngo_id,))
+    
+#     columns = ['request_id', 'food_type', 'quantity', 'request_date', 'status']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+# def get_available_donations(ngo_id=None):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     query = '''
+#     SELECT fd.donation_id, d.name as donor_name, fd.food_type, 
+#            fd.donation_date, fd.expiry_date, fd.quantity
+#     FROM food_donations fd
+#     JOIN donors d ON fd.donor_id = d.donor_id
+#     WHERE fd.status = 'Available'
+#     AND fd.expiry_date >= ?
+#     '''
+    
+#     params = [datetime.date.today().isoformat()]
+    
+#     # If ngo_id is specified, exclude donations already assigned to this NGO
+#     if ngo_id:
+#         query += "AND fd.ngo_id IS NULL OR fd.ngo_id = ?"
+#         params.append(ngo_id)
+    
+#     query += "ORDER BY fd.expiry_date ASC"
+    
+#     c.execute(query, params)
+    
+#     columns = ['donation_id', 'donor_name', 'food_type', 'donation_date', 
+#                'expiry_date', 'quantity']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+# def claim_donation(donation_id, ngo_id):
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute('''
+#     UPDATE food_donations
+#     SET ngo_id = ?, status = 'Assigned'
+#     WHERE donation_id = ? AND (status = 'Available' OR ngo_id = ?)
+#     ''', (ngo_id, donation_id, ngo_id))
+    
+#     success = c.rowcount > 0
+#     conn.commit()
+#     conn.close()
+#     return success
+
+# def get_all_ngos():
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute("SELECT ngo_id, name FROM ngos ORDER BY name")
+#     result = c.fetchall()
+#     conn.close()
+    
+#     return [(row[0], row[1]) for row in result]
+
+# # Analytics functions
+# def get_donation_statistics():
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Using GROUP BY for analytics
+#     c.execute('''
+#     SELECT 
+#         food_type, 
+#         COUNT(donation_id) as total_donations,
+#         SUM(quantity) as total_quantity,
+#         AVG(quantity) as avg_quantity,
+#         MIN(donation_date) as first_donation,
+#         MAX(donation_date) as last_donation
+#     FROM food_donations
+#     GROUP BY food_type
+#     ORDER BY total_quantity DESC
+#     ''')
+    
+#     columns = ['food_type', 'total_donations', 'total_quantity', 
+#                'avg_quantity', 'first_donation', 'last_donation']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+# def get_donation_trends():
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Using subquery for complex analytics
+#     c.execute('''
+#     SELECT 
+#         strftime('%Y-%m', donation_date) as month,
+#         COUNT(donation_id) as donation_count,
+#         SUM(quantity) as total_quantity,
+#         (SELECT COUNT(DISTINCT donor_id) 
+#          FROM food_donations fd2 
+#          WHERE strftime('%Y-%m', fd2.donation_date) = strftime('%Y-%m', fd.donation_date)
+#         ) as active_donors
+#     FROM food_donations fd
+#     WHERE donation_date >= date('now', '-12 months')
+#     GROUP BY month
+#     ORDER BY month
+#     ''')
+    
+#     columns = ['month', 'donation_count', 'total_quantity', 'active_donors']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+# def get_ngo_donation_distribution():
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     # Using JOIN and GROUP BY together
+#     c.execute('''
+#     SELECT 
+#         n.name as ngo_name,
+#         COUNT(fd.donation_id) as donations_received,
+#         SUM(fd.quantity) as total_quantity
+#     FROM ngos n
+#     JOIN food_donations fd ON n.ngo_id = fd.ngo_id
+#     GROUP BY n.ngo_id
+#     ORDER BY total_quantity DESC
+#     ''')
+    
+#     columns = ['ngo_name', 'donations_received', 'total_quantity']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+# def get_top_donors():
+#     conn = sqlite3.connect('food_waste_management.db')
+#     c = conn.cursor()
+    
+#     c.execute('''
+#     SELECT 
+#         d.name as donor_name,
+#         COUNT(fd.donation_id) as donation_count,
+#         SUM(fd.quantity) as total_donated
+#     FROM donors d
+#     JOIN food_donations fd ON d.donor_id = fd.donor_id
+#     GROUP BY d.donor_id
+#     ORDER BY total_donated DESC
+#     LIMIT 10
+#     ''')
+    
+#     columns = ['donor_name', 'donation_count', 'total_donated']
+#     result = [dict(zip(columns, row)) for row in c.fetchall()]
+#     conn.close()
+#     return result
+
+
+
+
+
+
+
+
+
 # app.py
 import streamlit as st
-import sqlite3
+import oracledb
 import hashlib
 import datetime
 import pandas as pd
@@ -9,525 +548,725 @@ import os
 import time
 import base64
 from io import BytesIO
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Oracle DB connection settings
+DB_USER = os.getenv("DB_USER", "SYSTEM")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "Oracle123")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = os.getenv("DB_PORT", "1521")
+DB_SERVICE = os.getenv("DB_SERVICE", "XEPDB1")
 
 # Initialize DB and create tables
 def init_db():
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Create tables in 3NF
-    
-    # Users table to store authentication data
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        user_type TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-    
-    # Donors table - normalized to store donor details
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS donors (
-        donor_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
-    )
-    ''')
-    
-    # Donor_contacts table - normalized to store contact information
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS donor_contacts (
-        contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        donor_id INTEGER NOT NULL,
-        email TEXT,
-        phone TEXT,
-        FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
-    )
-    ''')
-    
-    # Donor_addresses table - normalized to store address information
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS donor_addresses (
-        address_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        donor_id INTEGER NOT NULL,
-        street TEXT,
-        city TEXT,
-        FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
-    )
-    ''')
-    
-    # NGOs table - normalized to store NGO details
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS ngos (
-        ngo_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
-    )
-    ''')
-    
-    # NGO_contacts table - normalized to store contact information
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS ngo_contacts (
-        contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ngo_id INTEGER NOT NULL,
-        email TEXT,
-        phone TEXT,
-        FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-    )
-    ''')
-    
-    # NGO_addresses table - normalized to store address information
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS ngo_addresses (
-        address_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ngo_id INTEGER NOT NULL,
-        street TEXT,
-        city TEXT,
-        FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-    )
-    ''')
-    
-    # Food_donations table
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS food_donations (
-        donation_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        donor_id INTEGER NOT NULL,
-        ngo_id INTEGER,
-        food_type TEXT NOT NULL,
-        donation_date DATE NOT NULL,
-        expiry_date DATE NOT NULL,
-        quantity REAL NOT NULL,
-        status TEXT DEFAULT 'Available',
-        FOREIGN KEY (donor_id) REFERENCES donors(donor_id),
-        FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-    )
-    ''')
-    
-    # Requests table
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS requests (
-        request_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ngo_id INTEGER NOT NULL,
-        food_type TEXT NOT NULL,
-        quantity REAL NOT NULL,
-        request_date DATE NOT NULL,
-        status TEXT DEFAULT 'Pending',
-        FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-    )
-    ''')
-    
-    # Request_donations mapping table (for many-to-many relationship)
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS request_donations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        request_id INTEGER NOT NULL,
-        donation_id INTEGER NOT NULL,
-        FOREIGN KEY (request_id) REFERENCES requests(request_id),
-        FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
-    )
-    ''')
-    
-    # Create stored procedure using SQLite's CREATE TRIGGER syntax
-    # This trigger will update the status of a food donation when it's assigned to an NGO
-    c.execute('''
-    CREATE TRIGGER IF NOT EXISTS update_donation_status
-    AFTER UPDATE OF ngo_id ON food_donations
-    FOR EACH ROW
-    WHEN NEW.ngo_id IS NOT NULL
-    BEGIN
-        UPDATE food_donations SET status = 'Assigned' WHERE donation_id = NEW.donation_id;
-    END;
-    ''')
-    
-    # Trigger to update request status when all donations are assigned
-    c.execute('''
-    CREATE TRIGGER IF NOT EXISTS update_request_status
-    AFTER INSERT ON request_donations
-    BEGIN
-        UPDATE requests 
-        SET status = 'Fulfilled' 
-        WHERE request_id = NEW.request_id 
-        AND (SELECT COUNT(*) FROM request_donations WHERE request_id = NEW.request_id) > 0;
-    END;
-    ''')
-    
-    conn.commit()
-    conn.close()
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Create users table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE users (
+                        user_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        username VARCHAR2(100) UNIQUE NOT NULL,
+                        password_hash VARCHAR2(255) NOT NULL,
+                        user_type VARCHAR2(50) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:  # ORA-00955: name is already used by an existing object
+                        raise
+                
+                # Create donors table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE donors (
+                        donor_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        user_id NUMBER NOT NULL,
+                        name VARCHAR2(100) NOT NULL,
+                        CONSTRAINT fk_donors_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create donor_contacts table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE donor_contacts (
+                        contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        donor_id NUMBER NOT NULL,
+                        email VARCHAR2(100),
+                        phone VARCHAR2(50),
+                        CONSTRAINT fk_donor_contacts_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create donor_addresses table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE donor_addresses (
+                        address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        donor_id NUMBER NOT NULL,
+                        street VARCHAR2(200),
+                        city VARCHAR2(100),
+                        CONSTRAINT fk_donor_addresses_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create ngos table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE ngos (
+                        ngo_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        user_id NUMBER NOT NULL,
+                        name VARCHAR2(100) NOT NULL,
+                        CONSTRAINT fk_ngos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create ngo_contacts table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE ngo_contacts (
+                        contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        ngo_id NUMBER NOT NULL,
+                        email VARCHAR2(100),
+                        phone VARCHAR2(50),
+                        CONSTRAINT fk_ngo_contacts_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create ngo_addresses table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE ngo_addresses (
+                        address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        ngo_id NUMBER NOT NULL,
+                        street VARCHAR2(200),
+                        city VARCHAR2(100),
+                        CONSTRAINT fk_ngo_addresses_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create food_donations table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE food_donations (
+                        donation_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        donor_id NUMBER NOT NULL,
+                        ngo_id NUMBER,
+                        food_type VARCHAR2(100) NOT NULL,
+                        donation_date DATE NOT NULL,
+                        expiry_date DATE NOT NULL,
+                        quantity NUMBER NOT NULL,
+                        status VARCHAR2(50) DEFAULT 'Available',
+                        CONSTRAINT fk_food_donations_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id),
+                        CONSTRAINT fk_food_donations_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create requests table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE requests (
+                        request_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        ngo_id NUMBER NOT NULL,
+                        food_type VARCHAR2(100) NOT NULL,
+                        quantity NUMBER NOT NULL,
+                        request_date DATE NOT NULL,
+                        status VARCHAR2(50) DEFAULT 'Pending',
+                        CONSTRAINT fk_requests_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create request_donations mapping table
+                try:
+                    cursor.execute('''
+                    CREATE TABLE request_donations (
+                        id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        request_id NUMBER NOT NULL,
+                        donation_id NUMBER NOT NULL,
+                        CONSTRAINT fk_req_don_request_id FOREIGN KEY (request_id) REFERENCES requests(request_id),
+                        CONSTRAINT fk_req_don_donation_id FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
+                    )
+                    ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+                
+                # Create trigger to update donation status when assigned to an NGO
+                try:
+                    cursor.execute('''
+                    CREATE OR REPLACE TRIGGER update_donation_status
+                    AFTER UPDATE OF ngo_id ON food_donations
+                    FOR EACH ROW
+                    BEGIN
+                        IF :NEW.ngo_id IS NOT NULL THEN
+                            UPDATE food_donations SET status = 'Assigned' WHERE donation_id = :NEW.donation_id;
+                        END IF;
+                    END;
+                    ''')
+                except oracledb.DatabaseError:
+                    pass  # Trigger might already exist
+                
+                # Create trigger to update request status when donations are assigned
+                try:
+                    cursor.execute('''
+                    CREATE OR REPLACE TRIGGER update_request_status
+                    AFTER INSERT ON request_donations
+                    FOR EACH ROW
+                    DECLARE
+                        donation_count NUMBER;
+                    BEGIN
+                        SELECT COUNT(*) INTO donation_count FROM request_donations 
+                        WHERE request_id = :NEW.request_id;
+                        
+                        IF donation_count > 0 THEN
+                            UPDATE requests SET status = 'Fulfilled' WHERE request_id = :NEW.request_id;
+                        END IF;
+                    END;
+                    ''')
+                except oracledb.DatabaseError:
+                    pass  # Trigger might already exist
+                
+                conn.commit()
+                
+    except oracledb.DatabaseError as e:
+        print(f"Database error: {e}")
+        raise
 
 # Authentication functions
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def register_user(username, password, user_type):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
     try:
-        # Insert into users table
-        c.execute(
-            "INSERT INTO users (username, password_hash, user_type) VALUES (?, ?, ?)",
-            (username, hash_password(password), user_type)
-        )
-        user_id = c.lastrowid
-        
-        conn.commit()
-        conn.close()
-        return user_id
-    except sqlite3.IntegrityError:
-        conn.close()
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Insert into users table
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash, user_type) VALUES (:1, :2, :3) RETURNING user_id INTO :4",
+                    [username, hash_password(password), user_type, cursor.var(oracledb.NUMBER)]
+                )
+                user_id = cursor.var.getvalue()
+                conn.commit()
+                return user_id
+    except oracledb.IntegrityError:
         return None
 
 def authenticate(username, password):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute(
-        "SELECT user_id, user_type FROM users WHERE username = ? AND password_hash = ?",
-        (username, hash_password(password))
-    )
-    result = c.fetchone()
-    conn.close()
-    
-    if result:
-        return {"user_id": result[0], "user_type": result[1]}
-    return None
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT user_id, user_type FROM users WHERE username = :1 AND password_hash = :2",
+                    [username, hash_password(password)]
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    return {"user_id": result[0], "user_type": result[1]}
+                return None
+    except oracledb.DatabaseError:
+        return None
 
 # Donor functions
 def register_donor(user_id, name, email, phone, street, city):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Insert into donors table
-    c.execute("INSERT INTO donors (user_id, name) VALUES (?, ?)", (user_id, name))
-    donor_id = c.lastrowid
-    
-    # Insert into donor_contacts table
-    c.execute("INSERT INTO donor_contacts (donor_id, email, phone) VALUES (?, ?, ?)", 
-              (donor_id, email, phone))
-    
-    # Insert into donor_addresses table
-    c.execute("INSERT INTO donor_addresses (donor_id, street, city) VALUES (?, ?, ?)", 
-              (donor_id, street, city))
-    
-    conn.commit()
-    conn.close()
-    return donor_id
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Insert into donors table
+                cursor.execute(
+                    "INSERT INTO donors (user_id, name) VALUES (:1, :2) RETURNING donor_id INTO :3",
+                    [user_id, name, cursor.var(oracledb.NUMBER)]
+                )
+                donor_id = cursor.var.getvalue()
+                
+                # Insert into donor_contacts table
+                cursor.execute(
+                    "INSERT INTO donor_contacts (donor_id, email, phone) VALUES (:1, :2, :3)",
+                    [donor_id, email, phone]
+                )
+                
+                # Insert into donor_addresses table
+                cursor.execute(
+                    "INSERT INTO donor_addresses (donor_id, street, city) VALUES (:1, :2, :3)",
+                    [donor_id, street, city]
+                )
+                
+                conn.commit()
+                return donor_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in register_donor: {e}")
+        return None
 
 def get_donor_id_by_user_id(user_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute("SELECT donor_id FROM donors WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    
-    if result:
-        return result[0]
-    return None
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT donor_id FROM donors WHERE user_id = :1", [user_id])
+                result = cursor.fetchone()
+                
+                if result:
+                    return result[0]
+                return None
+    except oracledb.DatabaseError:
+        return None
 
 def get_donor_info(donor_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Using JOIN to get complete donor information
-    c.execute('''
-    SELECT d.name, dc.email, dc.phone, da.street, da.city
-    FROM donors d
-    JOIN donor_contacts dc ON d.donor_id = dc.donor_id
-    JOIN donor_addresses da ON d.donor_id = da.donor_id
-    WHERE d.donor_id = ?
-    ''', (donor_id,))
-    
-    result = c.fetchone()
-    conn.close()
-    
-    if result:
-        return {
-            "name": result[0],
-            "email": result[1],
-            "phone": result[2],
-            "street": result[3],
-            "city": result[4]
-        }
-    return None
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Using JOIN to get complete donor information
+                cursor.execute('''
+                SELECT d.name, dc.email, dc.phone, da.street, da.city
+                FROM donors d
+                JOIN donor_contacts dc ON d.donor_id = dc.donor_id
+                JOIN donor_addresses da ON d.donor_id = da.donor_id
+                WHERE d.donor_id = :1
+                ''', [donor_id])
+                
+                result = cursor.fetchone()
+                
+                if result:
+                    return {
+                        "name": result[0],
+                        "email": result[1],
+                        "phone": result[2],
+                        "street": result[3],
+                        "city": result[4]
+                    }
+                return None
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_donor_info: {e}")
+        return None
 
 def create_donation(donor_id, food_type, donation_date, expiry_date, quantity, ngo_id=None):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute('''
-    INSERT INTO food_donations 
-    (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, 
-          'Assigned' if ngo_id else 'Available'))
-    
-    donation_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return donation_id
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                status = 'Assigned' if ngo_id else 'Available'
+                
+                cursor.execute('''
+                INSERT INTO food_donations 
+                (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
+                VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, :7)
+                RETURNING donation_id INTO :8
+                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status, cursor.var(oracledb.NUMBER)])
+                
+                donation_id = cursor.var.getvalue()
+                conn.commit()
+                return donation_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in create_donation: {e}")
+        return None
 
 def get_donor_donations(donor_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute('''
-    SELECT fd.donation_id, fd.food_type, fd.donation_date, fd.expiry_date, 
-           fd.quantity, fd.status, COALESCE(n.name, 'None')
-    FROM food_donations fd
-    LEFT JOIN ngos n ON fd.ngo_id = n.ngo_id
-    WHERE fd.donor_id = ?
-    ORDER BY fd.donation_date DESC
-    ''', (donor_id,))
-    
-    columns = ['donation_id', 'food_type', 'donation_date', 'expiry_date', 
-               'quantity', 'status', 'ngo_name']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                SELECT fd.donation_id, fd.food_type, 
+                       TO_CHAR(fd.donation_date, 'YYYY-MM-DD') as donation_date, 
+                       TO_CHAR(fd.expiry_date, 'YYYY-MM-DD') as expiry_date, 
+                       fd.quantity, fd.status, NVL(n.name, 'None') as ngo_name
+                FROM food_donations fd
+                LEFT JOIN ngos n ON fd.ngo_id = n.ngo_id
+                WHERE fd.donor_id = :1
+                ORDER BY fd.donation_date DESC
+                ''', [donor_id])
+                
+                columns = ['donation_id', 'food_type', 'donation_date', 'expiry_date', 
+                           'quantity', 'status', 'ngo_name']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_donor_donations: {e}")
+        return []
 
 # NGO functions
 def register_ngo(user_id, name, email, phone, street, city):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Insert into ngos table
-    c.execute("INSERT INTO ngos (user_id, name) VALUES (?, ?)", (user_id, name))
-    ngo_id = c.lastrowid
-    
-    # Insert into ngo_contacts table
-    c.execute("INSERT INTO ngo_contacts (ngo_id, email, phone) VALUES (?, ?, ?)", 
-              (ngo_id, email, phone))
-    
-    # Insert into ngo_addresses table
-    c.execute("INSERT INTO ngo_addresses (ngo_id, street, city) VALUES (?, ?, ?)", 
-              (ngo_id, street, city))
-    
-    conn.commit()
-    conn.close()
-    return ngo_id
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Insert into ngos table
+                cursor.execute(
+                    "INSERT INTO ngos (user_id, name) VALUES (:1, :2) RETURNING ngo_id INTO :3",
+                    [user_id, name, cursor.var(oracledb.NUMBER)]
+                )
+                ngo_id = cursor.var.getvalue()
+                
+                # Insert into ngo_contacts table
+                cursor.execute(
+                    "INSERT INTO ngo_contacts (ngo_id, email, phone) VALUES (:1, :2, :3)",
+                    [ngo_id, email, phone]
+                )
+                
+                # Insert into ngo_addresses table
+                cursor.execute(
+                    "INSERT INTO ngo_addresses (ngo_id, street, city) VALUES (:1, :2, :3)",
+                    [ngo_id, street, city]
+                )
+                
+                conn.commit()
+                return ngo_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in register_ngo: {e}")
+        return None
 
 def get_ngo_id_by_user_id(user_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute("SELECT ngo_id FROM ngos WHERE user_id = ?", (user_id,))
-    result = c.fetchone()
-    conn.close()
-    
-    if result:
-        return result[0]
-    return None
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT ngo_id FROM ngos WHERE user_id = :1", [user_id])
+                result = cursor.fetchone()
+                
+                if result:
+                    return result[0]
+                return None
+    except oracledb.DatabaseError:
+        return None
 
 def get_ngo_info(ngo_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Using JOIN to get complete NGO information
-    c.execute('''
-    SELECT n.name, nc.email, nc.phone, na.street, na.city
-    FROM ngos n
-    JOIN ngo_contacts nc ON n.ngo_id = nc.ngo_id
-    JOIN ngo_addresses na ON n.ngo_id = na.ngo_id
-    WHERE n.ngo_id = ?
-    ''', (ngo_id,))
-    
-    result = c.fetchone()
-    conn.close()
-    
-    if result:
-        return {
-            "name": result[0],
-            "email": result[1],
-            "phone": result[2],
-            "street": result[3],
-            "city": result[4]
-        }
-    return None
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Using JOIN to get complete NGO information
+                cursor.execute('''
+                SELECT n.name, nc.email, nc.phone, na.street, na.city
+                FROM ngos n
+                JOIN ngo_contacts nc ON n.ngo_id = nc.ngo_id
+                JOIN ngo_addresses na ON n.ngo_id = na.ngo_id
+                WHERE n.ngo_id = :1
+                ''', [ngo_id])
+                
+                result = cursor.fetchone()
+                
+                if result:
+                    return {
+                        "name": result[0],
+                        "email": result[1],
+                        "phone": result[2],
+                        "street": result[3],
+                        "city": result[4]
+                    }
+                return None
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_ngo_info: {e}")
+        return None
 
 def create_request(ngo_id, food_type, quantity):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    request_date = datetime.date.today().isoformat()
-    
-    c.execute('''
-    INSERT INTO requests (ngo_id, food_type, quantity, request_date, status) 
-    VALUES (?, ?, ?, ?, 'Pending')
-    ''', (ngo_id, food_type, quantity, request_date))
-    
-    request_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return request_id
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                request_date = datetime.date.today().isoformat()
+                
+                cursor.execute('''
+                INSERT INTO requests (ngo_id, food_type, quantity, request_date, status) 
+                VALUES (:1, :2, :3, TO_DATE(:4, 'YYYY-MM-DD'), 'Pending')
+                RETURNING request_id INTO :5
+                ''', [ngo_id, food_type, quantity, request_date, cursor.var(oracledb.NUMBER)])
+                
+                request_id = cursor.var.getvalue()
+                conn.commit()
+                return request_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in create_request: {e}")
+        return None
 
 def get_ngo_requests(ngo_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute('''
-    SELECT request_id, food_type, quantity, request_date, status
-    FROM requests
-    WHERE ngo_id = ?
-    ORDER BY request_date DESC
-    ''', (ngo_id,))
-    
-    columns = ['request_id', 'food_type', 'quantity', 'request_date', 'status']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                SELECT request_id, food_type, quantity, 
+                       TO_CHAR(request_date, 'YYYY-MM-DD') as request_date, 
+                       status
+                FROM requests
+                WHERE ngo_id = :1
+                ORDER BY request_date DESC
+                ''', [ngo_id])
+                
+                columns = ['request_id', 'food_type', 'quantity', 'request_date', 'status']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_ngo_requests: {e}")
+        return []
 
 def get_available_donations(ngo_id=None):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    query = '''
-    SELECT fd.donation_id, d.name as donor_name, fd.food_type, 
-           fd.donation_date, fd.expiry_date, fd.quantity
-    FROM food_donations fd
-    JOIN donors d ON fd.donor_id = d.donor_id
-    WHERE fd.status = 'Available'
-    AND fd.expiry_date >= ?
-    '''
-    
-    params = [datetime.date.today().isoformat()]
-    
-    # If ngo_id is specified, exclude donations already assigned to this NGO
-    if ngo_id:
-        query += "AND fd.ngo_id IS NULL OR fd.ngo_id = ?"
-        params.append(ngo_id)
-    
-    query += "ORDER BY fd.expiry_date ASC"
-    
-    c.execute(query, params)
-    
-    columns = ['donation_id', 'donor_name', 'food_type', 'donation_date', 
-               'expiry_date', 'quantity']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                query = '''
+                SELECT fd.donation_id, d.name as donor_name, fd.food_type, 
+                       TO_CHAR(fd.donation_date, 'YYYY-MM-DD') as donation_date, 
+                       TO_CHAR(fd.expiry_date, 'YYYY-MM-DD') as expiry_date, 
+                       fd.quantity
+                FROM food_donations fd
+                JOIN donors d ON fd.donor_id = d.donor_id
+                WHERE fd.status = 'Available'
+                AND fd.expiry_date >= TO_DATE(:1, 'YYYY-MM-DD')
+                '''
+                
+                params = [datetime.date.today().isoformat()]
+                
+                # If ngo_id is specified, exclude donations already assigned to this NGO
+                if ngo_id:
+                    query += " AND (fd.ngo_id IS NULL OR fd.ngo_id = :2)"
+                    params.append(ngo_id)
+                
+                query += " ORDER BY fd.expiry_date ASC"
+                
+                cursor.execute(query, params)
+                
+                columns = ['donation_id', 'donor_name', 'food_type', 'donation_date', 
+                           'expiry_date', 'quantity']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_available_donations: {e}")
+        return []
 
 def claim_donation(donation_id, ngo_id):
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute('''
-    UPDATE food_donations
-    SET ngo_id = ?, status = 'Assigned'
-    WHERE donation_id = ? AND (status = 'Available' OR ngo_id = ?)
-    ''', (ngo_id, donation_id, ngo_id))
-    
-    success = c.rowcount > 0
-    conn.commit()
-    conn.close()
-    return success
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                UPDATE food_donations
+                SET ngo_id = :1, status = 'Assigned'
+                WHERE donation_id = :2 AND (status = 'Available' OR ngo_id = :1)
+                ''', [ngo_id, donation_id])
+                
+                success = cursor.rowcount > 0
+                conn.commit()
+                return success
+    except oracledb.DatabaseError as e:
+        print(f"Error in claim_donation: {e}")
+        return False
 
 def get_all_ngos():
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute("SELECT ngo_id, name FROM ngos ORDER BY name")
-    result = c.fetchall()
-    conn.close()
-    
-    return [(row[0], row[1]) for row in result]
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT ngo_id, name FROM ngos ORDER BY name")
+                return cursor.fetchall()
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_all_ngos: {e}")
+        return []
 
 # Analytics functions
 def get_donation_statistics():
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Using GROUP BY for analytics
-    c.execute('''
-    SELECT 
-        food_type, 
-        COUNT(donation_id) as total_donations,
-        SUM(quantity) as total_quantity,
-        AVG(quantity) as avg_quantity,
-        MIN(donation_date) as first_donation,
-        MAX(donation_date) as last_donation
-    FROM food_donations
-    GROUP BY food_type
-    ORDER BY total_quantity DESC
-    ''')
-    
-    columns = ['food_type', 'total_donations', 'total_quantity', 
-               'avg_quantity', 'first_donation', 'last_donation']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Using GROUP BY for analytics
+                cursor.execute('''
+                SELECT 
+                    food_type, 
+                    COUNT(donation_id) as total_donations,
+                    SUM(quantity) as total_quantity,
+                    AVG(quantity) as avg_quantity,
+                    TO_CHAR(MIN(donation_date), 'YYYY-MM-DD') as first_donation,
+                    TO_CHAR(MAX(donation_date), 'YYYY-MM-DD') as last_donation
+                FROM food_donations
+                GROUP BY food_type
+                ORDER BY total_quantity DESC
+                ''')
+                
+                columns = ['food_type', 'total_donations', 'total_quantity', 
+                           'avg_quantity', 'first_donation', 'last_donation']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_donation_statistics: {e}")
+        return []
 
 def get_donation_trends():
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Using subquery for complex analytics
-    c.execute('''
-    SELECT 
-        strftime('%Y-%m', donation_date) as month,
-        COUNT(donation_id) as donation_count,
-        SUM(quantity) as total_quantity,
-        (SELECT COUNT(DISTINCT donor_id) 
-         FROM food_donations fd2 
-         WHERE strftime('%Y-%m', fd2.donation_date) = strftime('%Y-%m', fd.donation_date)
-        ) as active_donors
-    FROM food_donations fd
-    WHERE donation_date >= date('now', '-12 months')
-    GROUP BY month
-    ORDER BY month
-    ''')
-    
-    columns = ['month', 'donation_count', 'total_quantity', 'active_donors']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Using Oracle's date functions for analytics
+                cursor.execute('''
+                SELECT 
+                    TO_CHAR(donation_date, 'YYYY-MM') as month,
+                    COUNT(donation_id) as donation_count,
+                    SUM(quantity) as total_quantity,
+                    (SELECT COUNT(DISTINCT donor_id) 
+                     FROM food_donations fd2 
+                     WHERE TO_CHAR(fd2.donation_date, 'YYYY-MM') = TO_CHAR(fd.donation_date, 'YYYY-MM')
+                    ) as active_donors
+                FROM food_donations fd
+                WHERE donation_date >= ADD_MONTHS(TRUNC(SYSDATE), -12)
+                GROUP BY TO_CHAR(donation_date, 'YYYY-MM')
+                ORDER BY month
+                ''')
+                
+                columns = ['month', 'donation_count', 'total_quantity', 'active_donors']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_donation_trends: {e}")
+        return []
 
 def get_ngo_donation_distribution():
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    # Using JOIN and GROUP BY together
-    c.execute('''
-    SELECT 
-        n.name as ngo_name,
-        COUNT(fd.donation_id) as donations_received,
-        SUM(fd.quantity) as total_quantity
-    FROM ngos n
-    JOIN food_donations fd ON n.ngo_id = fd.ngo_id
-    GROUP BY n.ngo_id
-    ORDER BY total_quantity DESC
-    ''')
-    
-    columns = ['ngo_name', 'donations_received', 'total_quantity']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Using JOIN and GROUP BY together
+                cursor.execute('''
+                SELECT 
+                    n.name as ngo_name,
+                    COUNT(fd.donation_id) as donations_received,
+                    SUM(fd.quantity) as total_quantity
+                FROM ngos n
+                JOIN food_donations fd ON n.ngo_id = fd.ngo_id
+                GROUP BY n.ngo_id, n.name
+                ORDER BY total_quantity DESC
+                ''')
+                
+                columns = ['ngo_name', 'donations_received', 'total_quantity']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_ngo_donation_distribution: {e}")
+        return []
 
 def get_top_donors():
-    conn = sqlite3.connect('food_waste_management.db')
-    c = conn.cursor()
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     
-    c.execute('''
-    SELECT 
-        d.name as donor_name,
-        COUNT(fd.donation_id) as donation_count,
-        SUM(fd.quantity) as total_donated
-    FROM donors d
-    JOIN food_donations fd ON d.donor_id = fd.donor_id
-    GROUP BY d.donor_id
-    ORDER BY total_donated DESC
-    LIMIT 10
-    ''')
-    
-    columns = ['donor_name', 'donation_count', 'total_donated']
-    result = [dict(zip(columns, row)) for row in c.fetchall()]
-    conn.close()
-    return result
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                SELECT 
+                    d.name as donor_name,
+                    COUNT(fd.donation_id) as donation_count,
+                    SUM(fd.quantity) as total_donated
+                FROM donors d
+                JOIN food_donations fd ON d.donor_id = fd.donor_id
+                GROUP BY d.donor_id, d.name
+                ORDER BY total_donated DESC
+                FETCH FIRST 10 ROWS ONLY
+                ''')
+                
+                columns = ['donor_name', 'donation_count', 'total_donated']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_top_donors: {e}")
+        return []
+
+
+
+
+
+
+
+
+
 
 # Main Streamlit app
 def main():
