@@ -21,11 +21,10 @@ def reset_database():
 
                 # Drop tables in correct order (child tables first)
                 tables = [
-                    "request_donations",      # Links between requests and donations
+                    "requests",              # Contains requests (now with donation_id FK)
                     "food_donations",         # Contains donations
-                    "requests",              # Contains requests
-                    "donors",                # Donor main table with contact & address
-                    "ngos",                  # NGO main table with contact & address
+                    "donors",                # Donor main table
+                    "ngos",                  # NGO main table
                     "users"                  # Users table (parent table)
                 ]
 

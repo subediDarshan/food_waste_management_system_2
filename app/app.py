@@ -151,7 +151,9 @@ def init_db():
                             quantity NUMBER NOT NULL,
                             request_date DATE NOT NULL,
                             status VARCHAR2(50) DEFAULT 'Pending',
-                            CONSTRAINT fk_requests_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                            donation_id NUMBER,
+                            CONSTRAINT fk_requests_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id),
+                            CONSTRAINT fk_requests_donation_id FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
                         )
                         ''')
                 except oracledb.DatabaseError as e:
@@ -159,25 +161,7 @@ def init_db():
                     if error.code != 955:
                         raise
                 
-                # Create request_donations mapping table
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'REQUEST_DONATIONS'")
-                    (table_exists,) = cursor.fetchone()
-
-                    if not table_exists:
-                        cursor.execute('''
-                        CREATE TABLE request_donations (
-                            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                            request_id NUMBER NOT NULL,
-                            donation_id NUMBER NOT NULL,
-                            CONSTRAINT fk_req_don_request_id FOREIGN KEY (request_id) REFERENCES requests(request_id),
-                            CONSTRAINT fk_req_don_donation_id FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
-                        )
-                        ''')
-                except oracledb.DatabaseError as e:
-                    error, = e.args
-                    if error.code != 955:
-                        raise
+                
                 
                 
                 conn.commit()
@@ -509,18 +493,13 @@ def create_donation_for_request(donor_id, food_type, donation_date, expiry_date,
                 
                 donation_id = donation_id_var.getvalue()[0]
                 
-                # Link the donation to the request
-                cursor.execute('''
-                    INSERT INTO request_donations (request_id, donation_id) 
-                    VALUES (:1, :2)
-                ''', [request_id, donation_id])
-                
-                # Update request status
+                # Update request with donation_id and status
                 cursor.execute('''
                     UPDATE requests 
-                    SET status = 'Fulfilled' 
-                    WHERE request_id = :1
-                ''', [request_id])
+                    SET status = 'Fulfilled',
+                        donation_id = :1
+                    WHERE request_id = :2
+                ''', [donation_id, request_id])
                 
                 conn.commit()
                 return donation_id
