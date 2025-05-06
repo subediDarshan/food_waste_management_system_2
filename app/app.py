@@ -52,6 +52,10 @@ def init_db():
                             donor_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                             user_id NUMBER NOT NULL,
                             name VARCHAR2(100) NOT NULL,
+                            email VARCHAR2(100),
+                            phone VARCHAR2(50),
+                            street VARCHAR2(200),
+                            city VARCHAR2(100),
                             CONSTRAINT fk_donors_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
                         )
                         ''')
@@ -60,45 +64,7 @@ def init_db():
                     if error.code != 955:
                         raise
                 
-                # Create donor_contacts table
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'DONOR_CONTACTS'")
-                    (table_exists,) = cursor.fetchone()
-
-                    if not table_exists:
-                        cursor.execute('''
-                        CREATE TABLE donor_contacts (
-                            contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                            donor_id NUMBER NOT NULL,
-                            email VARCHAR2(100),
-                            phone VARCHAR2(50),
-                            CONSTRAINT fk_donor_contacts_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
-                        )
-                        ''')
-                except oracledb.DatabaseError as e:
-                    error, = e.args
-                    if error.code != 955:
-                        raise
                 
-                # Create donor_addresses table
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'DONOR_ADDRESSES'")
-                    (table_exists,) = cursor.fetchone()
-
-                    if not table_exists:
-                        cursor.execute('''
-                        CREATE TABLE donor_addresses (
-                            address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                            donor_id NUMBER NOT NULL,
-                            street VARCHAR2(200),
-                            city VARCHAR2(100),
-                            CONSTRAINT fk_donor_addresses_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
-                        )
-                        ''')
-                except oracledb.DatabaseError as e:
-                    error, = e.args
-                    if error.code != 955:
-                        raise
                 
                 # Create ngos table
                 try:
@@ -111,6 +77,10 @@ def init_db():
                             ngo_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                             user_id NUMBER NOT NULL,
                             name VARCHAR2(100) NOT NULL,
+                            email VARCHAR2(100),
+                            phone VARCHAR2(50),
+                            street VARCHAR2(200),
+                            city VARCHAR2(100),
                             CONSTRAINT fk_ngos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
                         )
                         ''')
@@ -119,45 +89,7 @@ def init_db():
                     if error.code != 955:
                         raise
                 
-                # Create ngo_contacts table
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'NGO_CONTACTS'")
-                    (table_exists,) = cursor.fetchone()
-
-                    if not table_exists:
-                        cursor.execute('''
-                        CREATE TABLE ngo_contacts (
-                            contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                            ngo_id NUMBER NOT NULL,
-                            email VARCHAR2(100),
-                            phone VARCHAR2(50),
-                            CONSTRAINT fk_ngo_contacts_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-                        )
-                        ''')
-                except oracledb.DatabaseError as e:
-                    error, = e.args
-                    if error.code != 955:
-                        raise
                 
-                # Create ngo_addresses table
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'NGO_ADDRESSES'")
-                    (table_exists,) = cursor.fetchone()
-
-                    if not table_exists:
-                        cursor.execute('''
-                        CREATE TABLE ngo_addresses (
-                            address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                            ngo_id NUMBER NOT NULL,
-                            street VARCHAR2(200),
-                            city VARCHAR2(100),
-                            CONSTRAINT fk_ngo_addresses_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-                        )
-                        ''')
-                except oracledb.DatabaseError as e:
-                    error, = e.args
-                    if error.code != 955:
-                        raise
                 
                 # Create food_donations table
                 try:
@@ -305,23 +237,11 @@ def register_donor(user_id, name, email, phone, street, city):
                 
                 # Insert into donors table
                 cursor.execute(
-                    "INSERT INTO donors (user_id, name) VALUES (:1, :2) RETURNING donor_id INTO :3",
-                    [user_id, name, donor_id_var]
+                    "INSERT INTO donors (user_id, name, email, phone, street, city) VALUES (:1, :2, :3, :4, :5, :6) RETURNING donor_id INTO :7",
+                    [user_id, name, email, phone, street, city, donor_id_var]
                 )
                 
                 donor_id = donor_id_var.getvalue()[0]  # Get the returned donor_id
-                
-                # Insert into donor_contacts table
-                cursor.execute(
-                    "INSERT INTO donor_contacts (donor_id, email, phone) VALUES (:1, :2, :3)",
-                    [donor_id, email, phone]
-                )
-                
-                # Insert into donor_addresses table
-                cursor.execute(
-                    "INSERT INTO donor_addresses (donor_id, street, city) VALUES (:1, :2, :3)",
-                    [donor_id, street, city]
-                )
                 
                 conn.commit()
                 return donor_id
@@ -353,10 +273,8 @@ def get_donor_info(donor_id):
             with conn.cursor() as cursor:
                 # Using JOIN to get complete donor information
                 cursor.execute('''
-                SELECT d.name, dc.email, dc.phone, da.street, da.city
+                SELECT d.name, d.email, d.phone, d.street, d.city
                 FROM donors d
-                JOIN donor_contacts dc ON d.donor_id = dc.donor_id
-                JOIN donor_addresses da ON d.donor_id = da.donor_id
                 WHERE d.donor_id = :1
                 ''', [donor_id])
                 
@@ -442,22 +360,10 @@ def register_ngo(user_id, name, email, phone, street, city):
 
                 # Insert into ngos table
                 cursor.execute(
-                    "INSERT INTO ngos (user_id, name) VALUES (:1, :2) RETURNING ngo_id INTO :3",
-                    [user_id, name, ngo_id_var]
+                    "INSERT INTO ngos (user_id, name, email, phone, street, city) VALUES (:1, :2, :3, :4, :5, :6) RETURNING ngo_id INTO :7",
+                    [user_id, name, email, phone, street, city, ngo_id_var]
                 )
                 ngo_id = ngo_id_var.getvalue()[0]  # Get actual value
-
-                # Insert into ngo_contacts table
-                cursor.execute(
-                    "INSERT INTO ngo_contacts (ngo_id, email, phone) VALUES (:1, :2, :3)",
-                    [ngo_id, email, phone]
-                )
-
-                # Insert into ngo_addresses table
-                cursor.execute(
-                    "INSERT INTO ngo_addresses (ngo_id, street, city) VALUES (:1, :2, :3)",
-                    [ngo_id, street, city]
-                )
 
                 conn.commit()
                 return ngo_id
@@ -487,12 +393,10 @@ def get_ngo_info(ngo_id):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
-                # Using JOIN to get complete NGO information
+                
                 cursor.execute('''
-                SELECT n.name, nc.email, nc.phone, na.street, na.city
+                SELECT n.name, n.email, n.phone, n.street, n.city
                 FROM ngos n
-                JOIN ngo_contacts nc ON n.ngo_id = nc.ngo_id
-                JOIN ngo_addresses na ON n.ngo_id = na.ngo_id
                 WHERE n.ngo_id = :1
                 ''', [ngo_id])
                 

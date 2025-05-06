@@ -23,13 +23,9 @@ def reset_database():
                 tables = [
                     "request_donations",      # Links between requests and donations
                     "food_donations",         # Contains donations
-                    "requests",               # Contains requests
-                    "donor_contacts",         # Donor contact info
-                    "donor_addresses",        # Donor addresses
-                    "ngo_contacts",          # NGO contact info
-                    "ngo_addresses",         # NGO addresses
-                    "donors",                # Donor main table
-                    "ngos",                  # NGO main table
+                    "requests",              # Contains requests
+                    "donors",                # Donor main table with contact & address
+                    "ngos",                  # NGO main table with contact & address
                     "users"                  # Users table (parent table)
                 ]
 
