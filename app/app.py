@@ -284,12 +284,12 @@ def register_user(username, password, user_type):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
-                # Insert into users table
+                user_id_var = cursor.var(oracledb.NUMBER)  # Create bind variable
                 cursor.execute(
                     "INSERT INTO users (username, password_hash, user_type) VALUES (:1, :2, :3) RETURNING user_id INTO :4",
-                    [username, hash_password(password), user_type, cursor.var(oracledb.NUMBER)]
+                    [username, hash_password(password), user_type, user_id_var]
                 )
-                user_id = cursor.var.getvalue()
+                user_id = user_id_var.getvalue()[0]  # Get value from the bind variable
                 conn.commit()
                 return user_id
     except oracledb.IntegrityError:
@@ -320,12 +320,16 @@ def register_donor(user_id, name, email, phone, street, city):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
+                # Create the bind variable for donor_id
+                donor_id_var = cursor.var(oracledb.NUMBER)
+                
                 # Insert into donors table
                 cursor.execute(
                     "INSERT INTO donors (user_id, name) VALUES (:1, :2) RETURNING donor_id INTO :3",
-                    [user_id, name, cursor.var(oracledb.NUMBER)]
+                    [user_id, name, donor_id_var]
                 )
-                donor_id = cursor.var.getvalue()
+                
+                donor_id = donor_id_var.getvalue()[0]  # Get the returned donor_id
                 
                 # Insert into donor_contacts table
                 cursor.execute(
@@ -344,6 +348,7 @@ def register_donor(user_id, name, email, phone, street, city):
     except oracledb.DatabaseError as e:
         print(f"Error in register_donor: {e}")
         return None
+
 
 def get_donor_id_by_user_id(user_id):
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -398,19 +403,23 @@ def create_donation(donor_id, food_type, donation_date, expiry_date, quantity, n
             with conn.cursor() as cursor:
                 status = 'Assigned' if ngo_id else 'Available'
                 
-                cursor.execute('''
-                INSERT INTO food_donations 
-                (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
-                VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, :7)
-                RETURNING donation_id INTO :8
-                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status, cursor.var(oracledb.NUMBER)])
+                # Create a bind variable to capture the donation_id
+                donation_id_var = cursor.var(oracledb.NUMBER)
                 
-                donation_id = cursor.var.getvalue()
+                cursor.execute('''
+                    INSERT INTO food_donations 
+                    (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
+                    VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, :7)
+                    RETURNING donation_id INTO :8
+                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status, donation_id_var])
+                
+                donation_id = donation_id_var.getvalue()[0]
                 conn.commit()
                 return donation_id
     except oracledb.DatabaseError as e:
         print(f"Error in create_donation: {e}")
         return None
+
 
 def get_donor_donations(donor_id):
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -448,30 +457,34 @@ def register_ngo(user_id, name, email, phone, street, city):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
+                # Create bind variable for ngo_id
+                ngo_id_var = cursor.var(oracledb.NUMBER)
+
                 # Insert into ngos table
                 cursor.execute(
                     "INSERT INTO ngos (user_id, name) VALUES (:1, :2) RETURNING ngo_id INTO :3",
-                    [user_id, name, cursor.var(oracledb.NUMBER)]
+                    [user_id, name, ngo_id_var]
                 )
-                ngo_id = cursor.var.getvalue()
-                
+                ngo_id = ngo_id_var.getvalue()[0]  # Get actual value
+
                 # Insert into ngo_contacts table
                 cursor.execute(
                     "INSERT INTO ngo_contacts (ngo_id, email, phone) VALUES (:1, :2, :3)",
                     [ngo_id, email, phone]
                 )
-                
+
                 # Insert into ngo_addresses table
                 cursor.execute(
                     "INSERT INTO ngo_addresses (ngo_id, street, city) VALUES (:1, :2, :3)",
                     [ngo_id, street, city]
                 )
-                
+
                 conn.commit()
                 return ngo_id
     except oracledb.DatabaseError as e:
         print(f"Error in register_ngo: {e}")
         return None
+
 
 def get_ngo_id_by_user_id(user_id):
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -526,18 +539,22 @@ def create_request(ngo_id, food_type, quantity):
             with conn.cursor() as cursor:
                 request_date = datetime.date.today().isoformat()
                 
-                cursor.execute('''
-                INSERT INTO requests (ngo_id, food_type, quantity, request_date, status) 
-                VALUES (:1, :2, :3, TO_DATE(:4, 'YYYY-MM-DD'), 'Pending')
-                RETURNING request_id INTO :5
-                ''', [ngo_id, food_type, quantity, request_date, cursor.var(oracledb.NUMBER)])
+                # Create bind variable for request_id
+                request_id_var = cursor.var(oracledb.NUMBER)
                 
-                request_id = cursor.var.getvalue()
+                cursor.execute('''
+                    INSERT INTO requests (ngo_id, food_type, quantity, request_date, status) 
+                    VALUES (:1, :2, :3, TO_DATE(:4, 'YYYY-MM-DD'), 'Pending')
+                    RETURNING request_id INTO :5
+                ''', [ngo_id, food_type, quantity, request_date, request_id_var])
+                
+                request_id = request_id_var.getvalue()[0]  # Retrieve actual ID
                 conn.commit()
                 return request_id
     except oracledb.DatabaseError as e:
         print(f"Error in create_request: {e}")
         return None
+
 
 def get_ngo_requests(ngo_id):
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -611,11 +628,14 @@ def claim_donation(donation_id, ngo_id):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
-                cursor.execute('''
-                UPDATE food_donations
-                SET ngo_id = :1, status = 'Assigned'
-                WHERE donation_id = :2 AND (status = 'Available' OR ngo_id = :1)
-                ''', [ngo_id, donation_id])
+                cursor.execute(''' 
+                UPDATE food_donations 
+                SET ngo_id = :ngo_id, status = 'Assigned' 
+                WHERE donation_id = :donation_id AND (status = 'Available' OR ngo_id = :ngo_id)
+                ''', {
+                    "ngo_id": ngo_id,
+                    "donation_id": donation_id
+                })
                 
                 success = cursor.rowcount > 0
                 conn.commit()
@@ -759,12 +779,6 @@ def get_top_donors():
     except oracledb.DatabaseError as e:
         print(f"Error in get_top_donors: {e}")
         return []
-
-
-
-
-
-
 
 
 
