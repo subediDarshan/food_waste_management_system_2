@@ -233,40 +233,6 @@ def init_db():
                     if error.code != 955:
                         raise
                 
-                # Create trigger to update donation status when assigned to an NGO
-                try:
-                    cursor.execute('''
-                    CREATE OR REPLACE TRIGGER update_donation_status
-                    AFTER UPDATE OF ngo_id ON food_donations
-                    FOR EACH ROW
-                    BEGIN
-                        IF :NEW.ngo_id IS NOT NULL THEN
-                            UPDATE food_donations SET status = 'Assigned' WHERE donation_id = :NEW.donation_id;
-                        END IF;
-                    END;
-                    ''')
-                except oracledb.DatabaseError:
-                    pass  # Trigger might already exist
-                
-                # Create trigger to update request status when donations are assigned
-                try:
-                    cursor.execute('''
-                    CREATE OR REPLACE TRIGGER update_request_status
-                    AFTER INSERT ON request_donations
-                    FOR EACH ROW
-                    DECLARE
-                        donation_count NUMBER;
-                    BEGIN
-                        SELECT COUNT(*) INTO donation_count FROM request_donations 
-                        WHERE request_id = :NEW.request_id;
-                        
-                        IF donation_count > 0 THEN
-                            UPDATE requests SET status = 'Fulfilled' WHERE request_id = :NEW.request_id;
-                        END IF;
-                    END;
-                    ''')
-                except oracledb.DatabaseError:
-                    pass  # Trigger might already exist
                 
                 conn.commit()
                 
@@ -631,33 +597,18 @@ def create_donation_for_request(donor_id, food_type, donation_date, expiry_date,
                     VALUES (:1, :2)
                 ''', [request_id, donation_id])
                 
+                # Update request status
+                cursor.execute('''
+                    UPDATE requests 
+                    SET status = 'Fulfilled' 
+                    WHERE request_id = :1
+                ''', [request_id])
+                
                 conn.commit()
                 return donation_id
     except oracledb.DatabaseError as e:
         print(f"Error in create_donation_for_request: {e}")
         return None
-    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
-    
-    try:
-        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
-            with conn.cursor() as cursor:
-                # Create a bind variable to capture the donation_id
-                donation_id_var = cursor.var(oracledb.NUMBER)
-                
-                cursor.execute('''
-                    INSERT INTO food_donations 
-                    (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
-                    VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, 'Assigned')
-                    RETURNING donation_id INTO :7
-                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, donation_id_var])
-                
-                donation_id = donation_id_var.getvalue()[0]
-                conn.commit()
-                return donation_id
-    except oracledb.DatabaseError as e:
-        print(f"Error in create_donation: {e}")
-        return None
-
 
 
 
@@ -669,26 +620,49 @@ def get_ngo_requests(ngo_id):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
+                # Basic PL/SQL block with simple variables and cursor
+                plsql = """
+                DECLARE
+                    v_count NUMBER;
+                BEGIN
+                    -- First check if NGO has any requests
+                    SELECT COUNT(*) INTO v_count 
+                    FROM requests 
+                    WHERE ngo_id = :1;
+                    
+                    -- If no requests, set v_count to 0
+                    IF v_count = 0 THEN
+                        :2 := 0;
+                    ELSE
+                        :2 := 1;
+                    END IF;
+                END;
+                """
+                
+                # Execute PL/SQL to check for requests
+                has_requests = cursor.var(oracledb.NUMBER)
+                cursor.execute(plsql, [ngo_id, has_requests])
+                
+                # If no requests, return empty list
+                if has_requests.getvalue() == 0:
+                    return []
+                    
+                # If has requests, get them with regular SQL
                 cursor.execute('''
-                SELECT request_id, food_type, quantity, 
-                       TO_CHAR(request_date, 'YYYY-MM-DD') as request_date, 
-                       status
-                FROM requests
-                WHERE ngo_id = :1
-                ORDER BY request_date DESC
+                    SELECT request_id, food_type, quantity, 
+                           TO_CHAR(request_date, 'YYYY-MM-DD') as request_date, 
+                           status
+                    FROM requests
+                    WHERE ngo_id = :1
+                    ORDER BY request_date DESC
                 ''', [ngo_id])
                 
                 columns = ['request_id', 'food_type', 'quantity', 'request_date', 'status']
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
                 
-                result = []
-                for row in cursor:
-                    result.append(dict(zip(columns, row)))
-                
-                return result
     except oracledb.DatabaseError as e:
         print(f"Error in get_ngo_requests: {e}")
         return []
-
 
 def get_all_ngos():
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -1185,8 +1159,17 @@ def show_donor_dashboard():
             </div>
             """, unsafe_allow_html=True)
             
-            donation_date = st.date_input("Donation Date", datetime.date.today())
-            expiry_date = st.date_input("Expiry Date", datetime.date.today() + datetime.timedelta(days=3))
+            # Add unique keys to the date_input widgets
+            donation_date = st.date_input(
+                "Donation Date", 
+                datetime.date.today(),
+                key=f"request_donation_date_{req['request_id']}"
+            )
+            expiry_date = st.date_input(
+                "Expiry Date", 
+                datetime.date.today() + datetime.timedelta(days=3),
+                key=f"request_expiry_date_{req['request_id']}"
+            )
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1295,52 +1278,11 @@ def show_ngo_dashboard():
             st.rerun()
     
     # Main content
+    # Replace the tab definition line in show_ngo_dashboard():
+    # Main content
     tab1, tab2, tab3 = st.tabs(["My Requests", "Make Request", "Analytics"])
     
     with tab1:
-        st.header("Available Food Donations")
-        
-        st.markdown("""
-        <div class="highlight">
-        Browse available food donations and claim them for your organization.
-        </div>
-        """, unsafe_allow_html=True)
-        
-        available_donations = get_available_donations(st.session_state.entity_id)
-        
-        if not available_donations:
-            st.info("No available donations at the moment. Please check back later.")
-        else:
-            for i, donation in enumerate(available_donations):
-                col1, col2, col3 = st.columns([3, 2, 1])
-                
-                with col1:
-                    st.markdown(f"""
-                    <div class="card">
-                        <h3>{donation['food_type']}</h3>
-                        <p><strong>Donor:</strong> {donation['donor_name']}</p>
-                        <p><strong>Quantity:</strong> {donation['quantity']} kg</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col2:
-                    st.markdown(f"""
-                    <div class="card">
-                        <p><strong>Donated:</strong> {donation['donation_date']}</p>
-                        <p><strong>Expires:</strong> {donation['expiry_date']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col3:
-                    if st.button("Claim", key=f"claim_{donation['donation_id']}"):
-                        if claim_donation(donation['donation_id'], st.session_state.entity_id):
-                            st.success("Donation claimed successfully!")
-                            time.sleep(1)  # Short delay for UI feedback
-                            st.rerun()
-                        else:
-                            st.error("Failed to claim donation. It may have been claimed by another NGO.")
-    
-    with tab2:
         st.header("My Requests")
         
         requests = get_ngo_requests(st.session_state.entity_id)
@@ -1375,8 +1317,8 @@ def show_ngo_dashboard():
                     </div>
                     """, unsafe_allow_html=True)
     
-    with tab3:
-        st.header("Make Food Request")
+    with tab2:
+        st.header("Make Request")
         
         st.markdown("""
         <div class="highlight">
@@ -1407,7 +1349,7 @@ def show_ngo_dashboard():
             else:
                 st.warning("Please fill in all required fields.")
     
-    with tab4:
+    with tab3:
         st.header("Donation Analytics")
         
         # Get analytics data
@@ -1431,26 +1373,6 @@ def show_ngo_dashboard():
                 st.bar_chart(ngo_data.set_index('ngo_name')['total_quantity'])
             else:
                 st.info("No NGO distribution data available.")
-        
-        # Highlight current NGO's statistics
-        if ngo_distribution:
-            current_ngo_stats = next((item for item in ngo_distribution if item['ngo_name'] == ngo_info['name']), None)
-            
-            if current_ngo_stats:
-                st.markdown(f"""
-                <div class="dashboard-stats">
-                    <div class="stat-card">
-                        <h3>Your Donations Received</h3>
-                        <p style="font-size: 24px; font-weight: bold;">{current_ngo_stats['donations_received']}</p>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Total Food Received</h3>
-                        <p style="font-size: 24px; font-weight: bold;">{current_ngo_stats['total_quantity']:.2f} kg</p>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("Your organization hasn't received any donations yet.")
 
 if __name__ == "__main__":
     main()
