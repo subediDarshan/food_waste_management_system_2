@@ -15,31 +15,34 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Oracle DB connection settings
-DB_USER = os.getenv("DB_USER", "SYSTEM")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "Oracle123")
+DB_USER = os.getenv("DB_USER", "new_user")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "1521")
 DB_SERVICE = os.getenv("DB_SERVICE", "XEPDB1")
 
 # Initialize DB and create tables
 def init_db():
-    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
-    
     try:
-        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+        with oracledb.connect(user="new_user", password="password", dsn="localhost:1521/XEPDB1") as conn:
             with conn.cursor() as cursor:
                 # Create users table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE users (
-                        user_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        username VARCHAR2(100) UNIQUE NOT NULL,
-                        password_hash VARCHAR2(255) NOT NULL,
-                        user_type VARCHAR2(50) NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'USERS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                            CREATE TABLE users (
+                                user_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                                username VARCHAR2(100) UNIQUE NOT NULL,
+                                password_hash VARCHAR2(255) NOT NULL,
+                                user_type VARCHAR2(50) NOT NULL,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        ''')
+                    
+                    
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:  # ORA-00955: name is already used by an existing object
@@ -47,14 +50,18 @@ def init_db():
                 
                 # Create donors table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE donors (
-                        donor_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        user_id NUMBER NOT NULL,
-                        name VARCHAR2(100) NOT NULL,
-                        CONSTRAINT fk_donors_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'DONORS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE donors (
+                            donor_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            user_id NUMBER NOT NULL,
+                            name VARCHAR2(100) NOT NULL,
+                            CONSTRAINT fk_donors_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -62,15 +69,19 @@ def init_db():
                 
                 # Create donor_contacts table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE donor_contacts (
-                        contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        donor_id NUMBER NOT NULL,
-                        email VARCHAR2(100),
-                        phone VARCHAR2(50),
-                        CONSTRAINT fk_donor_contacts_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'DONOR_CONTACTS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE donor_contacts (
+                            contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            donor_id NUMBER NOT NULL,
+                            email VARCHAR2(100),
+                            phone VARCHAR2(50),
+                            CONSTRAINT fk_donor_contacts_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -78,15 +89,19 @@ def init_db():
                 
                 # Create donor_addresses table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE donor_addresses (
-                        address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        donor_id NUMBER NOT NULL,
-                        street VARCHAR2(200),
-                        city VARCHAR2(100),
-                        CONSTRAINT fk_donor_addresses_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'DONOR_ADDRESSES'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE donor_addresses (
+                            address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            donor_id NUMBER NOT NULL,
+                            street VARCHAR2(200),
+                            city VARCHAR2(100),
+                            CONSTRAINT fk_donor_addresses_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -94,14 +109,18 @@ def init_db():
                 
                 # Create ngos table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE ngos (
-                        ngo_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        user_id NUMBER NOT NULL,
-                        name VARCHAR2(100) NOT NULL,
-                        CONSTRAINT fk_ngos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'NGOS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE ngos (
+                            ngo_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            user_id NUMBER NOT NULL,
+                            name VARCHAR2(100) NOT NULL,
+                            CONSTRAINT fk_ngos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -109,15 +128,19 @@ def init_db():
                 
                 # Create ngo_contacts table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE ngo_contacts (
-                        contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        ngo_id NUMBER NOT NULL,
-                        email VARCHAR2(100),
-                        phone VARCHAR2(50),
-                        CONSTRAINT fk_ngo_contacts_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'NGO_CONTACTS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE ngo_contacts (
+                            contact_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            ngo_id NUMBER NOT NULL,
+                            email VARCHAR2(100),
+                            phone VARCHAR2(50),
+                            CONSTRAINT fk_ngo_contacts_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -125,15 +148,19 @@ def init_db():
                 
                 # Create ngo_addresses table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE ngo_addresses (
-                        address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        ngo_id NUMBER NOT NULL,
-                        street VARCHAR2(200),
-                        city VARCHAR2(100),
-                        CONSTRAINT fk_ngo_addresses_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'NGO_ADDRESSES'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE ngo_addresses (
+                            address_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            ngo_id NUMBER NOT NULL,
+                            street VARCHAR2(200),
+                            city VARCHAR2(100),
+                            CONSTRAINT fk_ngo_addresses_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -141,20 +168,24 @@ def init_db():
                 
                 # Create food_donations table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE food_donations (
-                        donation_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        donor_id NUMBER NOT NULL,
-                        ngo_id NUMBER,
-                        food_type VARCHAR2(100) NOT NULL,
-                        donation_date DATE NOT NULL,
-                        expiry_date DATE NOT NULL,
-                        quantity NUMBER NOT NULL,
-                        status VARCHAR2(50) DEFAULT 'Available',
-                        CONSTRAINT fk_food_donations_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id),
-                        CONSTRAINT fk_food_donations_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'FOOD_DONATIONS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE food_donations (
+                            donation_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            donor_id NUMBER NOT NULL,
+                            ngo_id NUMBER,
+                            food_type VARCHAR2(100) NOT NULL,
+                            donation_date DATE NOT NULL,
+                            expiry_date DATE NOT NULL,
+                            quantity NUMBER NOT NULL,
+                            status VARCHAR2(50) DEFAULT 'Available',
+                            CONSTRAINT fk_food_donations_donor_id FOREIGN KEY (donor_id) REFERENCES donors(donor_id),
+                            CONSTRAINT fk_food_donations_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -162,17 +193,21 @@ def init_db():
                 
                 # Create requests table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE requests (
-                        request_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        ngo_id NUMBER NOT NULL,
-                        food_type VARCHAR2(100) NOT NULL,
-                        quantity NUMBER NOT NULL,
-                        request_date DATE NOT NULL,
-                        status VARCHAR2(50) DEFAULT 'Pending',
-                        CONSTRAINT fk_requests_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'REQUESTS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE requests (
+                            request_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            ngo_id NUMBER NOT NULL,
+                            food_type VARCHAR2(100) NOT NULL,
+                            quantity NUMBER NOT NULL,
+                            request_date DATE NOT NULL,
+                            status VARCHAR2(50) DEFAULT 'Pending',
+                            CONSTRAINT fk_requests_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -180,15 +215,19 @@ def init_db():
                 
                 # Create request_donations mapping table
                 try:
-                    cursor.execute('''
-                    CREATE TABLE request_donations (
-                        id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        request_id NUMBER NOT NULL,
-                        donation_id NUMBER NOT NULL,
-                        CONSTRAINT fk_req_don_request_id FOREIGN KEY (request_id) REFERENCES requests(request_id),
-                        CONSTRAINT fk_req_don_donation_id FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
-                    )
-                    ''')
+                    cursor.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'REQUEST_DONATIONS'")
+                    (table_exists,) = cursor.fetchone()
+
+                    if not table_exists:
+                        cursor.execute('''
+                        CREATE TABLE request_donations (
+                            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            request_id NUMBER NOT NULL,
+                            donation_id NUMBER NOT NULL,
+                            CONSTRAINT fk_req_don_request_id FOREIGN KEY (request_id) REFERENCES requests(request_id),
+                            CONSTRAINT fk_req_don_donation_id FOREIGN KEY (donation_id) REFERENCES food_donations(donation_id)
+                        )
+                        ''')
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -735,7 +774,6 @@ def main():
     
     # Initialize the database
     init_db()
-    time.sleep(20)
     # Set page configuration and custom CSS
     st.set_page_config(
         page_title="Food Waste Management System",
