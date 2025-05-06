@@ -1,19 +1,12 @@
-
-# app.py
 import streamlit as st
 import oracledb
 import hashlib
 import datetime
 import pandas as pd
-from PIL import Image
 import os
 import time
-import base64
-from io import BytesIO
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+
 
 DB_USER = os.getenv("DB_USER", "new_user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
@@ -21,7 +14,7 @@ DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "1521")
 DB_SERVICE = os.getenv("DB_SERVICE", "XEPDB1")
 
-# Initialize DB and create tables
+
 def init_db():
     try:
         with oracledb.connect(user="new_user", password="password", dsn="localhost:1521/XEPDB1") as conn:
@@ -45,7 +38,7 @@ def init_db():
                     
                 except oracledb.DatabaseError as e:
                     error, = e.args
-                    if error.code != 955:  # ORA-00955: name is already used by an existing object
+                    if error.code != 955:  
                         raise
                 
                 # Create donors table
@@ -186,6 +179,27 @@ def init_db():
                             CONSTRAINT fk_food_donations_ngo_id FOREIGN KEY (ngo_id) REFERENCES ngos(ngo_id)
                         )
                         ''')
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code != 955:
+                        raise
+
+                # Add trigger to check donation date
+                try:
+                    cursor.execute("""
+                    CREATE OR REPLACE TRIGGER check_donation_date
+                    BEFORE INSERT ON food_donations
+                    FOR EACH ROW
+                    DECLARE
+                        v_days NUMBER;
+                    BEGIN
+                        v_days := :NEW.expiry_date - :NEW.donation_date;
+                        IF v_days < 0 THEN
+                            RAISE_APPLICATION_ERROR(-20001, 'Expiry date cannot be before donation date');
+                        END IF;
+                    END;
+                    """)
+                    
                 except oracledb.DatabaseError as e:
                     error, = e.args
                     if error.code != 955:
@@ -620,31 +634,30 @@ def get_ngo_requests(ngo_id):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
-                # Basic PL/SQL block with simple variables and cursor
+                # Create and call PL/SQL procedure
                 plsql = """
-                DECLARE
-                    v_count NUMBER;
+                CREATE OR REPLACE PROCEDURE get_ngo_request_count(
+                    p_ngo_id IN NUMBER,
+                    p_count OUT NUMBER
+                ) IS
                 BEGIN
-                    -- First check if NGO has any requests
-                    SELECT COUNT(*) INTO v_count 
+                    SELECT COUNT(*) INTO p_count 
                     FROM requests 
-                    WHERE ngo_id = :1;
-                    
-                    -- If no requests, set v_count to 0
-                    IF v_count = 0 THEN
-                        :2 := 0;
-                    ELSE
-                        :2 := 1;
-                    END IF;
+                    WHERE ngo_id = p_ngo_id;
                 END;
                 """
                 
-                # Execute PL/SQL to check for requests
-                has_requests = cursor.var(oracledb.NUMBER)
-                cursor.execute(plsql, [ngo_id, has_requests])
+                # Create procedure
+                cursor.execute(plsql)
+                
+                # Create output variable
+                count_var = cursor.var(oracledb.NUMBER)
+                
+                # Execute procedure
+                cursor.callproc("get_ngo_request_count", [ngo_id, count_var])
                 
                 # If no requests, return empty list
-                if has_requests.getvalue() == 0:
+                if count_var.getvalue() == 0:
                     return []
                     
                 # If has requests, get them with regular SQL
@@ -777,31 +790,50 @@ def get_top_donors():
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
+                # Create PL/SQL function
+                plsql = """
+                CREATE OR REPLACE FUNCTION get_donor_count
+                RETURN NUMBER IS
+                    v_count NUMBER;
+                BEGIN
+                    SELECT COUNT(DISTINCT donor_id) 
+                    INTO v_count 
+                    FROM food_donations;
+                    RETURN v_count;
+                END;
+                """
+                
+                # Create function
+                cursor.execute(plsql)
+                
+                # Create output variable and execute function correctly
+                result = cursor.var(oracledb.NUMBER)
+                cursor.execute("BEGIN :result := get_donor_count(); END;", {'result': result})
+                donor_count = result.getvalue()
+                
+                # If no donors, return empty list
+                if donor_count == 0:
+                    return []
+                    
+                # If has donors, get them with regular SQL
                 cursor.execute('''
-                SELECT 
-                    d.name as donor_name,
-                    COUNT(fd.donation_id) as donation_count,
-                    SUM(fd.quantity) as total_donated
-                FROM donors d
-                JOIN food_donations fd ON d.donor_id = fd.donor_id
-                GROUP BY d.donor_id, d.name
-                ORDER BY total_donated DESC
-                FETCH FIRST 10 ROWS ONLY
+                    SELECT 
+                        d.name as donor_name,
+                        COUNT(fd.donation_id) as donation_count,
+                        SUM(fd.quantity) as total_donated
+                    FROM donors d
+                    JOIN food_donations fd ON d.donor_id = fd.donor_id
+                    GROUP BY d.donor_id, d.name
+                    ORDER BY total_donated DESC
+                    FETCH FIRST 10 ROWS ONLY
                 ''')
                 
                 columns = ['donor_name', 'donation_count', 'total_donated']
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
                 
-                result = []
-                for row in cursor:
-                    result.append(dict(zip(columns, row)))
-                
-                return result
     except oracledb.DatabaseError as e:
         print(f"Error in get_top_donors: {e}")
         return []
-
-
-
 
 # Main Streamlit app
 def main():
