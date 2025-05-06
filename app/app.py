@@ -29,7 +29,7 @@ def init_db():
                             CREATE TABLE users (
                                 user_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                                 username VARCHAR2(100) UNIQUE NOT NULL,
-                                password_hash VARCHAR2(255) NOT NULL,
+                                password VARCHAR2(255) NOT NULL,
                                 user_type VARCHAR2(50) NOT NULL,
                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                             )
@@ -182,7 +182,7 @@ def register_user(username, password, user_type):
             with conn.cursor() as cursor:
                 user_id_var = cursor.var(oracledb.NUMBER)  # Create bind variable
                 cursor.execute(
-                    "INSERT INTO users (username, password_hash, user_type) VALUES (:1, :2, :3) RETURNING user_id INTO :4",
+                    "INSERT INTO users (username, password, user_type) VALUES (:1, :2, :3) RETURNING user_id INTO :4",
                     [username, hash_password(password), user_type, user_id_var]
                 )
                 user_id = user_id_var.getvalue()[0]  # Get value from the bind variable
@@ -198,7 +198,7 @@ def authenticate(username, password):
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "SELECT user_id, user_type FROM users WHERE username = :1 AND password_hash = :2",
+                    "SELECT user_id, user_type FROM users WHERE username = :1 AND password = :2",
                     [username, hash_password(password)]
                 )
                 result = cursor.fetchone()
