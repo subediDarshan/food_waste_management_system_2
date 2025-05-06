@@ -555,6 +555,113 @@ def create_request(ngo_id, food_type, quantity):
         print(f"Error in create_request: {e}")
         return None
 
+def get_all_pending_requests():
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
+    
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                SELECT r.request_id, r.food_type, r.quantity, 
+                       TO_CHAR(r.request_date, 'YYYY-MM-DD') as request_date, 
+                       r.status, n.ngo_id, n.name as ngo_name
+                FROM requests r
+                JOIN ngos n ON r.ngo_id = n.ngo_id
+                WHERE r.status = 'Pending'
+                ORDER BY r.request_date
+                ''')
+                
+                columns = ['request_id', 'food_type', 'quantity', 'request_date', 
+                           'status', 'ngo_id', 'ngo_name']
+                
+                result = []
+                for row in cursor:
+                    result.append(dict(zip(columns, row)))
+                
+                return result
+    except oracledb.DatabaseError as e:
+        print(f"Error in get_all_pending_requests: {e}")
+        return []
+
+def create_donation(donor_id, food_type, donation_date, expiry_date, quantity, ngo_id):
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
+    
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Create a bind variable to capture the donation_id
+                donation_id_var = cursor.var(oracledb.NUMBER)
+                
+                cursor.execute('''
+                    INSERT INTO food_donations 
+                    (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
+                    VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, 'Assigned')
+                    RETURNING donation_id INTO :7
+                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, donation_id_var])
+                
+                donation_id = donation_id_var.getvalue()[0]
+                conn.commit()
+                return donation_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in create_donation: {e}")
+        return None
+
+def create_donation_for_request(donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, request_id):
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
+    
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Create a bind variable to capture the donation_id
+                donation_id_var = cursor.var(oracledb.NUMBER)
+                
+                # Insert the donation
+                cursor.execute('''
+                    INSERT INTO food_donations 
+                    (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
+                    VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, 'Assigned')
+                    RETURNING donation_id INTO :7
+                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, donation_id_var])
+                
+                donation_id = donation_id_var.getvalue()[0]
+                
+                # Link the donation to the request
+                cursor.execute('''
+                    INSERT INTO request_donations (request_id, donation_id) 
+                    VALUES (:1, :2)
+                ''', [request_id, donation_id])
+                
+                conn.commit()
+                return donation_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in create_donation_for_request: {e}")
+        return None
+    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
+    
+    try:
+        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
+            with conn.cursor() as cursor:
+                # Create a bind variable to capture the donation_id
+                donation_id_var = cursor.var(oracledb.NUMBER)
+                
+                cursor.execute('''
+                    INSERT INTO food_donations 
+                    (donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, status) 
+                    VALUES (:1, :2, TO_DATE(:3, 'YYYY-MM-DD'), TO_DATE(:4, 'YYYY-MM-DD'), :5, :6, 'Assigned')
+                    RETURNING donation_id INTO :7
+                ''', [donor_id, food_type, donation_date, expiry_date, quantity, ngo_id, donation_id_var])
+                
+                donation_id = donation_id_var.getvalue()[0]
+                conn.commit()
+                return donation_id
+    except oracledb.DatabaseError as e:
+        print(f"Error in create_donation: {e}")
+        return None
+
+
+
+
+
 
 def get_ngo_requests(ngo_id):
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -582,67 +689,6 @@ def get_ngo_requests(ngo_id):
         print(f"Error in get_ngo_requests: {e}")
         return []
 
-def get_available_donations(ngo_id=None):
-    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
-    
-    try:
-        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
-            with conn.cursor() as cursor:
-                query = '''
-                SELECT fd.donation_id, d.name as donor_name, fd.food_type, 
-                       TO_CHAR(fd.donation_date, 'YYYY-MM-DD') as donation_date, 
-                       TO_CHAR(fd.expiry_date, 'YYYY-MM-DD') as expiry_date, 
-                       fd.quantity
-                FROM food_donations fd
-                JOIN donors d ON fd.donor_id = d.donor_id
-                WHERE fd.status = 'Available'
-                AND fd.expiry_date >= TO_DATE(:1, 'YYYY-MM-DD')
-                '''
-                
-                params = [datetime.date.today().isoformat()]
-                
-                # If ngo_id is specified, exclude donations already assigned to this NGO
-                if ngo_id:
-                    query += " AND (fd.ngo_id IS NULL OR fd.ngo_id = :2)"
-                    params.append(ngo_id)
-                
-                query += " ORDER BY fd.expiry_date ASC"
-                
-                cursor.execute(query, params)
-                
-                columns = ['donation_id', 'donor_name', 'food_type', 'donation_date', 
-                           'expiry_date', 'quantity']
-                
-                result = []
-                for row in cursor:
-                    result.append(dict(zip(columns, row)))
-                
-                return result
-    except oracledb.DatabaseError as e:
-        print(f"Error in get_available_donations: {e}")
-        return []
-
-def claim_donation(donation_id, ngo_id):
-    dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
-    
-    try:
-        with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(''' 
-                UPDATE food_donations 
-                SET ngo_id = :ngo_id, status = 'Assigned' 
-                WHERE donation_id = :donation_id AND (status = 'Available' OR ngo_id = :ngo_id)
-                ''', {
-                    "ngo_id": ngo_id,
-                    "donation_id": donation_id
-                })
-                
-                success = cursor.rowcount > 0
-                conn.commit()
-                return success
-    except oracledb.DatabaseError as e:
-        print(f"Error in claim_donation: {e}")
-        return False
 
 def get_all_ngos():
     dsn = f"{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
@@ -1011,7 +1057,7 @@ def show_donor_dashboard():
             st.rerun()
     
     # Main content
-    tab1, tab2, tab3 = st.tabs(["Donate Food", "My Donations", "Analytics"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Donate Food", "My Donations", "NGO Requests", "Analytics"])
     
     with tab1:
         st.header("Donate Food")
@@ -1034,15 +1080,18 @@ def show_donor_dashboard():
         
         # Get list of all NGOs
         ngos = get_all_ngos()
-        ngo_options = [("", "Select an NGO (Optional)")] + ngos
-        selected_ngo = st.selectbox("Donate to specific NGO", ngo_options, format_func=lambda x: x[1] if x else "Select an NGO (Optional)")
+        ngo_options = ngos  # Remove the optional empty selection
+        if not ngo_options:
+            st.error("No NGOs are registered in the system. Donations cannot be made at this time.")
+        else:
+            selected_ngo = st.selectbox("Select NGO to donate to (Required)", ngo_options, format_func=lambda x: x[1])
         
         if st.button("Submit Donation"):
-            if food_type and quantity > 0 and donation_date and expiry_date:
+            if food_type and quantity > 0 and donation_date and expiry_date and selected_ngo:
                 if expiry_date < donation_date:
                     st.error("Expiry date cannot be before donation date.")
                 else:
-                    ngo_id = selected_ngo[0] if selected_ngo and selected_ngo[0] != "" else None
+                    ngo_id = selected_ngo[0]
                     
                     donation_id = create_donation(
                         st.session_state.entity_id,
@@ -1087,8 +1136,90 @@ def show_donor_dashboard():
                 }),
                 use_container_width=True
             )
-    
+
     with tab3:
+        st.header("NGO Food Requests")
+        
+        st.markdown("""
+        <div class="highlight">
+        Help fulfill specific food requests from NGOs. Your donations make a difference!
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Get all pending requests from NGOs
+        all_requests = get_all_pending_requests()
+        
+        if not all_requests:
+            st.info("There are no pending requests from NGOs at the moment.")
+        else:
+            for req in all_requests:
+                col1, col2, col3 = st.columns([3, 2, 1])
+                
+                with col1:
+                    st.markdown(f"""
+                    <div class="card">
+                        <h3>{req['food_type']}</h3>
+                        <p><strong>NGO:</strong> {req['ngo_name']}</p>
+                        <p><strong>Quantity Needed:</strong> {req['quantity']} kg</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f"""
+                    <div class="card">
+                        <p><strong>Request Date:</strong> {req['request_date']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    if st.button("Donate This", key=f"donate_req_{req['request_id']}"):
+                        st.session_state.donating_to_request = req
+                        st.rerun()
+                        
+        # Handle donation form for request
+        if 'donating_to_request' in st.session_state and st.session_state.donating_to_request:
+            req = st.session_state.donating_to_request
+            st.markdown(f"""
+            <div class="highlight">
+            You are donating to fulfill a request from {req['ngo_name']} for {req['quantity']} kg of {req['food_type']}.
+            </div>
+            """, unsafe_allow_html=True)
+            
+            donation_date = st.date_input("Donation Date", datetime.date.today())
+            expiry_date = st.date_input("Expiry Date", datetime.date.today() + datetime.timedelta(days=3))
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Confirm Donation"):
+                    if donation_date and expiry_date:
+                        if expiry_date < donation_date:
+                            st.error("Expiry date cannot be before donation date.")
+                        else:
+                            # Create donation linked to this request
+                            donation_id = create_donation_for_request(
+                                st.session_state.entity_id,
+                                req['food_type'],
+                                donation_date.isoformat(),
+                                expiry_date.isoformat(),
+                                req['quantity'],
+                                req['ngo_id'],
+                                req['request_id']
+                            )
+                            
+                            if donation_id:
+                                st.success("Donation submitted successfully! Thank you for your contribution.")
+                                del st.session_state.donating_to_request
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Failed to submit donation. Please try again.")
+            
+            with col2:
+                if st.button("Cancel"):
+                    del st.session_state.donating_to_request
+                    st.rerun()
+    
+    with tab4:
         st.header("Donation Analytics")
         
         # Get analytics data
@@ -1164,7 +1295,7 @@ def show_ngo_dashboard():
             st.rerun()
     
     # Main content
-    tab1, tab2, tab3, tab4 = st.tabs(["Available Donations", "My Requests", "Make Request", "Analytics"])
+    tab1, tab2, tab3 = st.tabs(["My Requests", "Make Request", "Analytics"])
     
     with tab1:
         st.header("Available Food Donations")
