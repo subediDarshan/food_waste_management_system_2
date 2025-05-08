@@ -185,7 +185,7 @@ def register_user(username, password, user_type):
                     "INSERT INTO users (username, password, user_type) VALUES (:1, :2, :3) RETURNING user_id INTO :4",
                     [username, hash_password(password), user_type, user_id_var]
                 )
-                user_id = user_id_var.getvalue()[0]  # Get value from the bind variable
+                user_id = user_id_var.getvalue()[0]  
                 conn.commit()
                 return user_id
     except oracledb.IntegrityError:
@@ -255,7 +255,6 @@ def get_donor_info(donor_id):
     try:
         with oracledb.connect(user=DB_USER, password=DB_PASSWORD, dsn=dsn) as conn:
             with conn.cursor() as cursor:
-                # Using JOIN to get complete donor information
                 cursor.execute('''
                 SELECT d.name, d.email, d.phone, d.street, d.city
                 FROM donors d
